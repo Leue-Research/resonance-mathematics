@@ -1,0 +1,112 @@
+/-
+  LMC Formalisierung - calc Syntax korrigiert
+  Für: https://live.lean-lang.org/#project=mathlib4
+-/
+
+import Mathlib.Analysis.SpecialFunctions.Sqrt
+import Mathlib.Data.Real.Basic
+import Mathlib.Tactic
+
+open Real
+
+noncomputable def discreteLMC (a_p p : ℝ) : ℝ := 
+  a_p / (2 * sqrt p)
+
+def lmcSigma (σ₀ β t : ℝ) : ℝ := 
+  σ₀ * (1 + β * t)
+
+noncomputable def ellipticityRatio (β : ℝ) : ℝ := 
+  (1 + β) / (1 - β)
+
+theorem discreteLMC_bounded (a_p p : ℝ) 
+    (hp : 0 < p)
+    (h_hasse : |a_p| ≤ 2 * sqrt p) :
+    |discreteLMC a_p p| ≤ 1 := by
+  unfold discreteLMC
+  rw [abs_div, abs_mul, abs_of_pos (by linarith : (0:ℝ) < 2)]
+  rw [abs_of_nonneg (sqrt_nonneg p)]
+  have h1 : 0 < 2 * sqrt p := by
+    apply mul_pos; linarith; exact sqrt_pos.mpr hp
+  rw [div_le_one h1]
+  exact h_hasse
+
+theorem uniform_ellipticity_lower (σ₀ β t : ℝ)
+    (hσ : 0 < σ₀)
+    (hβ_nn : 0 ≤ β)
+    (ht : -1 ≤ t) :
+    σ₀ * (1 - β) ≤ lmcSigma σ₀ β t := by
+  unfold lmcSigma
+  have h1 : 1 - β ≤ 1 + β * t := by
+    have : -β ≤ β * t := by
+      calc -β = -(β * 1) := by ring
+           _ = β * (-1) := by ring
+           _ ≤ β * t := mul_le_mul_of_nonneg_left ht hβ_nn
+    linarith
+  exact mul_le_mul_of_nonneg_left h1 (le_of_lt hσ)
+
+theorem uniform_ellipticity_upper (σ₀ β t : ℝ)
+    (hσ : 0 < σ₀)
+    (hβ_nn : 0 ≤ β)
+    (ht : t ≤ 1) :
+    lmcSigma σ₀ β t ≤ σ₀ * (1 + β) := by
+  unfold lmcSigma
+  have h1 : 1 + β * t ≤ 1 + β := by
+    have : β * t ≤ β := by
+      calc β * t ≤ β * 1 := mul_le_mul_of_nonneg_left ht hβ_nn
+           _ = β := by ring
+    linarith
+  exact mul_le_mul_of_nonneg_left h1 (le_of_lt hσ)
+
+theorem conductivity_positive (σ₀ β t : ℝ)
+    (hσ : 0 < σ₀)
+    (hβ_nn : 0 ≤ β)
+    (hβ_lt : β < 1)
+    (ht : |t| ≤ 1) :
+    0 < lmcSigma σ₀ β t := by
+  unfold lmcSigma
+  have ht_lower : -1 ≤ t := by rw [abs_le] at ht; exact ht.1
+  have h1 : 0 < 1 + β * t := by
+    have : -β ≤ β * t := by
+      calc -β = β * (-1) := by ring
+           _ ≤ β * t := mul_le_mul_of_nonneg_left ht_lower hβ_nn
+    linarith
+  exact mul_pos hσ h1
+
+theorem ellipticityRatio_ge_one (β : ℝ)
+    (hβ_nn : 0 ≤ β)
+    (hβ_lt : β < 1) :
+    1 ≤ ellipticityRatio β := by
+  unfold ellipticityRatio
+  have h_denom : 0 < 1 - β := by linarith
+  have : 1 - β ≤ 1 + β := by linarith
+  calc 1 = (1 - β) / (1 - β) := by rw [div_self]; linarith
+       _ ≤ (1 + β) / (1 - β) := div_le_div_of_nonneg_right this (le_of_lt h_denom)
+
+theorem lmc_main_theorem (σ₀ β t : ℝ)
+    (hσ : 0 < σ₀)
+    (hβ_nn : 0 ≤ β)
+    (hβ_lt : β < 1)
+    (ht : |t| ≤ 1) :
+    (σ₀ * (1 - β) ≤ lmcSigma σ₀ β t ∧ 
+     lmcSigma σ₀ β t ≤ σ₀ * (1 + β)) ∧
+    (0 < lmcSigma σ₀ β t) ∧
+    (1 ≤ ellipticityRatio β) := by
+  constructor
+  · constructor
+    · have ht_lower : -1 ≤ t := by rw [abs_le] at ht; exact ht.1
+      exact uniform_ellipticity_lower σ₀ β t hσ hβ_nn ht_lower
+    · have ht_upper : t ≤ 1 := by rw [abs_le] at ht; exact ht.2
+      exact uniform_ellipticity_upper σ₀ β t hσ hβ_nn ht_upper
+  constructor
+  · exact conductivity_positive σ₀ β t hσ hβ_nn hβ_lt ht
+  · exact ellipticityRatio_ge_one β hβ_nn hβ_lt
+
+example : discreteLMC (-4) 5 = -4 / (2 * sqrt 5) := rfl
+example : lmcSigma 1 (1/2) 0.5 = 1 * (1 + (1/2) * 0.5) := rfl
+
+#check discreteLMC_bounded
+#check uniform_ellipticity_lower
+#check uniform_ellipticity_upper
+#check conductivity_positive
+#check ellipticityRatio_ge_one
+#check lmc_main_theorem

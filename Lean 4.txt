@@ -1,0 +1,201 @@
+-- ════════════════════════════════════════════════════════════════════════
+-- ERGÄNZUNGEN ZU BESTEHENDEM LMC-CODE (kein sorry, nur bewiesene Fakten)
+-- ════════════════════════════════════════════════════════════════════════
+
+import Mathlib.Analysis.SpecialFunctions.Trigonometric.Basic
+import Mathlib.Analysis.SpecialFunctions.Log.Basic
+import Mathlib.Data.Real.Basic
+import Mathlib.Tactic
+
+open Real
+
+-- ════════════════════════════════════════════════════════════════════════
+-- 1. ELEMENT-RESONANZ E(Z) = sin(ln Z)
+-- ════════════════════════════════════════════════════════════════════════
+
+noncomputable def elementResonance (Z : ℝ) : ℝ := sin (log Z)
+
+theorem resonance_at_one : elementResonance 1 = 0 := by
+  unfold elementResonance
+  simp [Real.log_one, Real.sin_zero]
+
+theorem resonance_at_exp_npi (n : ℤ) : elementResonance (exp (n * π)) = 0 := by
+  unfold elementResonance
+  rw [Real.log_exp]
+  exact Real.sin_int_mul_pi n
+
+theorem resonance_periodic (Z : ℝ) (hZ : 0 < Z) :
+    elementResonance (exp (2 * π) * Z) = elementResonance Z := by
+  unfold elementResonance
+  rw [Real.log_mul (ne_of_gt (exp_pos _)) (ne_of_gt hZ), Real.log_exp, add_comm]
+  exact Real.sin_add_two_pi (log Z)
+
+theorem resonance_bounded (Z : ℝ) : |elementResonance Z| ≤ 1 := by
+  unfold elementResonance
+  exact Real.abs_sin_le_one _
+
+-- ════════════════════════════════════════════════════════════════════════
+-- 2. LMC CONFIDENCE SCORE
+-- ════════════════════════════════════════════════════════════════════════
+
+noncomputable def lmcConfidence
+    (σ₀ β α γ σ_norm x_struct x_auth x_consist : ℝ) : ℝ :=
+  σ₀ * (1 + β * (2 * x_struct - 1)) *
+  (1 - α * (1 - x_auth) / (1 - σ_norm)) *
+  exp (-γ * x_consist)
+
+theorem confidence_zero_drift (σ₀ β α γ σ_norm x_struct x_auth : ℝ) :
+    lmcConfidence σ₀ β α γ σ_norm x_struct x_auth 0 =
+    σ₀ * (1 + β * (2 * x_struct - 1)) * (1 - α * (1 - x_auth) / (1 - σ_norm)) := by
+  unfold lmcConfidence
+  simp [mul_zero, exp_zero]
+
+theorem confidence_all_zero (σ₀ β α γ σ_norm : ℝ) (hσ : (1 : ℝ) - σ_norm ≠ 0) :
+    lmcConfidence σ₀ β α γ σ_norm 0 0 0 =
+    σ₀ * (1 - β) * (1 - α / (1 - σ_norm)) := by
+  unfold lmcConfidence
+  simp only [mul_zero, exp_zero, mul_one, sub_zero]
+  field_simp
+  ring
+
+theorem confidence_linear_struct (σ₀ β α γ σ_norm x_auth x_consist : ℝ) :
+    ∀ x_struct : ℝ, ∃ (A B : ℝ),
+    lmcConfidence σ₀ β α γ σ_norm x_struct x_auth x_consist = A * x_struct + B := by
+  intro x_struct
+  use σ₀ * (β * 2) * ((1 - α * (1 - x_auth) / (1 - σ_norm)) * exp (-γ * x_consist))
+  use σ₀ * (1 - β) * ((1 - α * (1 - x_auth) / (1 - σ_norm)) * exp (-γ * x_consist))
+  unfold lmcConfidence
+  ring
+
+-- ════════════════════════════════════════════════════════════════════════
+-- 3. ROC-TRICHOTOMIE (Forward/Neutral/Backward)
+-- ════════════════════════════════════════════════════════════════════════
+
+def isForward (k_dot_v epsilon : ℝ) : Prop := k_dot_v > epsilon
+def isNeutral (k_dot_v epsilon : ℝ) : Prop := abs k_dot_v ≤ epsilon
+def isBackward (k_dot_v epsilon : ℝ) : Prop := k_dot_v < -epsilon
+
+/-- Forward und Backward sind disjunkt.
+    FIX v4: unfold statt simp only, und omega-style Beweis. -/
+theorem forward_backward_disjoint (k_dot_v epsilon : ℝ) (heps : 0 ≤ epsilon) :
+    ¬(isForward k_dot_v epsilon ∧ isBackward k_dot_v epsilon) := by
+  unfold isForward isBackward
+  intro ⟨hf, hb⟩
+  have h1 : epsilon < k_dot_v := hf
+  have h2 : k_dot_v < -epsilon := hb
+  have h3 : epsilon < -epsilon := lt_trans h1 h2
+  linarith
+
+theorem forward_neutral_disjoint (k_dot_v epsilon : ℝ) (_heps : 0 < epsilon) :
+    ¬(isForward k_dot_v epsilon ∧ isNeutral k_dot_v epsilon) := by
+  unfold isForward isNeutral
+  intro ⟨hf, hn⟩
+  have := (abs_le.mp hn).2
+  linarith
+
+theorem neutral_backward_disjoint (k_dot_v epsilon : ℝ) (_heps : 0 < epsilon) :
+    ¬(isNeutral k_dot_v epsilon ∧ isBackward k_dot_v epsilon) := by
+  unfold isNeutral isBackward
+  intro ⟨hn, hb⟩
+  have := (abs_le.mp hn).1
+  linarith
+
+theorem roc_trichotomy (k_dot_v epsilon : ℝ) (_heps : 0 < epsilon) :
+    isForward k_dot_v epsilon ∨ isNeutral k_dot_v epsilon ∨ isBackward k_dot_v epsilon := by
+  unfold isForward isNeutral isBackward
+  by_cases h1 : k_dot_v > epsilon
+  · left; exact h1
+  · by_cases h2 : k_dot_v < -epsilon
+    · right; right; exact h2
+    · right; left
+      push_neg at h1 h2
+      exact abs_le.mpr ⟨by linarith, by linarith⟩
+
+-- ════════════════════════════════════════════════════════════════════════
+-- 4. GAP-RULE (Prime Time Quantization)
+-- ════════════════════════════════════════════════════════════════════════
+
+def gapRule (gap : ℕ) : ℤ := if gap = 2 then 1 else -1
+
+theorem gapRule_values (gap : ℕ) : gapRule gap = 1 ∨ gapRule gap = -1 := by
+  unfold gapRule
+  split_ifs
+  · left; rfl
+  · right; rfl
+
+theorem gapRule_at_two : gapRule 2 = 1 := rfl
+
+theorem gapRule_at_four : gapRule 4 = -1 := rfl
+
+theorem gapRule_sum_cancel : gapRule 2 + gapRule 4 = 0 := by
+  rw [gapRule_at_two, gapRule_at_four]; norm_num
+
+-- ════════════════════════════════════════════════════════════════════════
+-- 5. ZUSTANDSSUMME
+--    FIX v4: partition_zero und partition_one komplett via native_decide.
+--    partition_antitone ENTFERNT (kein sorry).
+-- ════════════════════════════════════════════════════════════════════════
+
+noncomputable def logPartition (n : ℕ) (beta : ℝ) : ℝ :=
+  -(∑ p ∈ (Finset.range (n + 1)).filter Nat.Prime,
+    Real.log (1 - (p : ℝ) ^ (-beta)))
+
+theorem partition_zero (beta : ℝ) : logPartition 0 beta = 0 := by
+  unfold logPartition
+  norm_num [Finset.sum_filter, Finset.sum_range_succ, Finset.sum_range_zero,
+            Nat.not_prime_zero]
+
+theorem partition_one (beta : ℝ) : logPartition 1 beta = 0 := by
+  unfold logPartition
+  norm_num [Finset.sum_filter, Finset.sum_range_succ, Finset.sum_range_zero,
+            Nat.not_prime_zero, Nat.not_prime_one]
+
+-- ════════════════════════════════════════════════════════════════════════
+-- 6. UNIFORME ELLIPTIZITÄT
+-- ════════════════════════════════════════════════════════════════════════
+
+theorem lmc_uniform_ellipticity (σ₀ β t : ℝ) (hσ₀ : 0 < σ₀)
+    (hβ₀ : 0 ≤ β) (_hβ₁ : β < 1) (ht : |t| ≤ 1) :
+    σ₀ * (1 - β) ≤ σ₀ * (1 + β * t) ∧ σ₀ * (1 + β * t) ≤ σ₀ * (1 + β) := by
+  have h_neg : -1 ≤ t := by linarith [(abs_le.mp ht).1]
+  have h_pos : t ≤ 1 := by linarith [(abs_le.mp ht).2]
+  constructor
+  · nlinarith [mul_nonneg (le_of_lt hσ₀) (mul_nonneg hβ₀ (by linarith : 0 ≤ t + 1))]
+  · nlinarith [mul_nonneg (le_of_lt hσ₀) (mul_nonneg hβ₀ (by linarith : 0 ≤ 1 - t))]
+
+theorem gapRule_abs (gap : ℕ) : |gapRule gap| = 1 := by
+  rcases gapRule_values gap with h | h <;> simp [h]
+
+-- ════════════════════════════════════════════════════════════════════════
+-- VERIFIKATION
+-- ════════════════════════════════════════════════════════════════════════
+
+#check elementResonance
+#check resonance_at_one
+#check resonance_at_exp_npi
+#check resonance_periodic
+#check resonance_bounded
+
+#check lmcConfidence
+#check confidence_zero_drift
+#check confidence_all_zero
+#check confidence_linear_struct
+
+#check isForward
+#check isNeutral
+#check isBackward
+#check forward_backward_disjoint
+#check forward_neutral_disjoint
+#check neutral_backward_disjoint
+#check roc_trichotomy
+
+#check gapRule
+#check gapRule_values
+#check gapRule_sum_cancel
+
+#check logPartition
+#check partition_zero
+#check partition_one
+
+#check lmc_uniform_ellipticity
+#check gapRule_abs
